@@ -19,6 +19,13 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:27.0) Gecko/2010010
 class arxivInfo(object):
     def __init__(self):
         self.base_url = "http://export.arxiv.org/api/query"
+
+    def _normalize_proxy(self, proxy):
+        if not proxy:
+            return proxy
+        if proxy.startswith("http://") or proxy.startswith("https://"):
+            return proxy
+        return "http://{}".format(proxy)
     
     def set_proxy_handler(self, proxy):
         """set proxy handler
@@ -29,8 +36,9 @@ class arxivInfo(object):
         Returns:
             A proxy handler object.
         """
-        proxy_handler = ProxyHandler({"http": f"http://{proxy}",
-                                      "https": f"https://{proxy}"})
+        proxy_url = self._normalize_proxy(proxy)
+        proxy_handler = ProxyHandler({"http": proxy_url,
+                                      "https": proxy_url})
         return proxy_handler
             
     
@@ -66,6 +74,8 @@ class arxivInfo(object):
             "journal": journal,
             "year": year,
             "url": paper_url,
+            "arxiv_id": paper_url.rsplit("/", 1)[-1],
+            "doi": item.get("arxiv_doi") if hasattr(item, "get") else None,
             "pdf_link": item.link.replace("abs", "pdf")+".pdf",
             "cited_count": None
         }
@@ -94,25 +104,49 @@ class arxivInfo(object):
         
         params = "?search_query=id:"+quote(unidecode(arxivId))
         
-        try:
-            if handler:
-                result = feedparser.parse(self.base_url + params, handlers=[handler])
-            else:
-                result = feedparser.parse(self.base_url  + params)
-            items = result.entries
-
-            item = items[0]
-            if "arxiv_doi" in item:
-                doi = item["arxiv_doi"]
-                
-                crossref_info = crossrefInfo()
+        max_attempts = 2
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
                 if handler:
-                    crossref_info.set_proxy(proxy=handler.proxies["http"].split('//')[-1])
-                return crossref_info.get_info_by_doi(doi)
-            else:
-                return self.extract_json_info(item)
-        except:
-            logger.error("DOI: {} is error.".format(arxivId))
+                    result = feedparser.parse(self.base_url + params, handlers=[handler])
+                else:
+                    result = feedparser.parse(self.base_url + params)
+
+                items = result.entries
+                if not items:
+                    last_error = getattr(result, "bozo_exception", None)
+                    if attempt < max_attempts:
+                        logger.warning("arXiv lookup returned no entries for {}. Retrying.".format(arxivId))
+                    continue
+
+                item = items[0]
+                if "arxiv_doi" in item:
+                    doi = item["arxiv_doi"]
+
+                    crossref_info = crossrefInfo()
+                    if handler:
+                        crossref_info.set_proxy(proxy=handler.proxies["http"])
+                    crossref_bib = crossref_info.get_info_by_doi(doi)
+                    if crossref_bib:
+                        crossref_bib["arxiv_id"] = arxivId
+                        crossref_bib["arxiv_url"] = item.link
+                        if not crossref_bib.get("pdf_link"):
+                            crossref_bib["pdf_link"] = item.link.replace("abs", "pdf")+".pdf"
+                        return crossref_bib
+                    return self.extract_json_info(item)
+                else:
+                    return self.extract_json_info(item)
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_attempts:
+                    logger.warning("arXiv lookup failed for {}. Retrying: {}".format(arxivId, exc))
+
+        if last_error:
+            logger.error("No arXiv entries found for {} after {} attempts: {}".format(arxivId, max_attempts, last_error))
+        else:
+            logger.error("No arXiv entries found for {} after {} attempts.".format(arxivId, max_attempts))
+        return None
             
     
     def get_info_by_title(self, title, field='ti'):

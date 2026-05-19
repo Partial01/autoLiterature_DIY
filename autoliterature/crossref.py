@@ -42,29 +42,38 @@ class crossrefInfo(object):
         pub_date = '-'.join(pub_date)
 
         if 'author' in bib.keys():
-            authors = ' and '.join([i["family"]+" "+i['given'] for i in bib['author'] if "family" and "given" in i.keys()])
+            authors = ' and '.join(
+                ["{} {}".format(i.get("given", ""), i.get("family", "")).strip() for i in bib['author']]
+            )
         else:
             authors = "No author"
 
-        if 'short-container-title' in bib.keys():
-            try:
-                journal = bib['short-container-title'][0]
-            except:
-                journal = "No journal"
+        short_container_title = bib.get('short-container-title') or []
+        container_title = bib.get('container-title') or []
+
+        if short_container_title:
+            journal = short_container_title[0]
+        elif container_title:
+            journal = container_title[0]
         else:
-            try:
-                journal = bib['container-title'][0]
-            except:
-                journal = "No journal"
+            journal = "No journal"
+
+        pdf_link = None
+        links = bib.get("link") or []
+        if links:
+            pdf_link = links[0].get("URL")
 
         bib_dict = {
             "title": bib['title'][0],
             "author": authors,
             "journal": journal,
+            "short_container_title": short_container_title,
+            "container_title": container_title,
             "year": pub_date,
             "url": bib["URL"],
-            "pdf_link": bib["link"][0]["URL"],
-            "cited_count": bib["is-referenced-by-count"]
+            "doi": bib.get("DOI"),
+            "pdf_link": pdf_link,
+            "cited_count": bib.get("is-referenced-by-count")
         } 
         
         return bib_dict

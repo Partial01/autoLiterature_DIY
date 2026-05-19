@@ -6,6 +6,7 @@ from .arxiv import arxivInfo
 from .crossref import crossrefInfo
 from .medbiorxiv import BMxivInfo
 from .pdfs import pdfDownload
+from .semantic_scholar import get_semantic_scholar_info
 
 # log config
 logging.basicConfig()
@@ -41,9 +42,43 @@ def classify(identifier):
         return 'title'
     else:
         return "unrecognized"
+
+
+def _normalize_arxiv_id(arxiv_id):
+    if not arxiv_id:
+        return arxiv_id
+    arxiv_id = str(arxiv_id).strip()
+    arxiv_id = arxiv_id.rsplit("/", 1)[-1]
+    return re.sub(r"v\d+$", "", arxiv_id)
     
-def get_paper_info_from_paperid(paper_id, proxy=None):
+def enrich_paper_info_with_semantic_scholar(bib_dict, paper_id, id_type=None, proxy=None):
+    if not bib_dict:
+        return bib_dict
+
+    if id_type is None:
+        id_type = classify(paper_id)
+
+    doi = bib_dict.get("doi")
+    arxiv_id = _normalize_arxiv_id(bib_dict.get("arxiv_id"))
+    if id_type in ["doi", "medbiorxivId"]:
+        doi = doi or paper_id
+    elif id_type == "arxivId":
+        arxiv_id = _normalize_arxiv_id(paper_id) or arxiv_id
+
+    s2_info = get_semantic_scholar_info(
+        doi=doi,
+        arxiv_id=arxiv_id,
+        title=bib_dict.get("title"),
+        proxy=proxy,
+    )
+    if s2_info:
+        bib_dict["semantic_scholar"] = s2_info
+    return bib_dict
+
+
+def get_paper_info_from_paperid(paper_id, proxy=None, enrich_semantic=True):
     id_type = classify(paper_id)
+    bib_dict = None
     
     if id_type == "doi":
         downloader = crossrefInfo()
@@ -53,9 +88,10 @@ def get_paper_info_from_paperid(paper_id, proxy=None):
         
     elif id_type == "arxivId":
         downloader = arxivInfo()
+        handler = False
         if proxy:
-            downloader.set_proxy_handler(proxy=proxy)
-        bib_dict = downloader.get_info_by_arxivid(paper_id)
+            handler = downloader.set_proxy_handler(proxy=proxy)
+        bib_dict = downloader.get_info_by_arxivid(paper_id, handler=handler)
         
     elif id_type == "medbiorxivId":
         downloader = BMxivInfo()
@@ -67,9 +103,12 @@ def get_paper_info_from_paperid(paper_id, proxy=None):
         pass 
     else:
         pass 
+
+    if not enrich_semantic:
+        return bib_dict
     
     try:
-        return bib_dict 
+        return enrich_paper_info_with_semantic_scholar(bib_dict, paper_id, id_type, proxy=proxy)
     except:
         pass 
 

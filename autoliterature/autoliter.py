@@ -22,6 +22,8 @@ def set_args():
                         'when used, -i must be a folder path including all notes')
     parser.add_argument('-m', '--migration', type=str, default=None, 
                         help="the pdf folder path you want to reconnect to")
+    parser.add_argument('--semantic-scholar', action='store_true',
+                        help='Enable optional Semantic Scholar enrichment.')
     args = parser.parse_args()
     
     return args 
@@ -33,17 +35,18 @@ def check_args():
     delete_bool = args.delete
     migration_path = args.migration
     proxy = args.proxy
+    semantic_scholar = args.semantic_scholar
         
-    return input_path, output_path, delete_bool, proxy, migration_path
+    return input_path, output_path, delete_bool, proxy, migration_path, semantic_scholar
 
 
-def get_bib_and_pdf(note_file, output_path, proxy, paper_recognizer):
+def get_bib_and_pdf(note_file, output_path, proxy, paper_recognizer, semantic_scholar=False):
     
     pdfs_path = output_path
     if not os.path.exists(pdfs_path):
         os.makedirs(pdfs_path)
     
-    with open(note_file, 'r') as f:
+    with open(note_file, 'r', encoding='utf-8') as f:
         content = f.read()
             
     m = paper_recognizer.findall(content)
@@ -53,29 +56,35 @@ def get_bib_and_pdf(note_file, output_path, proxy, paper_recognizer):
         logger.info("未找到需要下载的文献, 文件 {} 未更新.".format(note_file))
     else:
         # TODO add pd_online link in note file
-        replace_dict = get_update_content(m, note_file, pdfs_path, proxy=proxy)
+        replace_dict = get_update_content(
+            m,
+            note_file,
+            pdfs_path,
+            proxy=proxy,
+            semantic_scholar=semantic_scholar,
+        )
             
         return replace_dict
 
 
-def file_update(input_path, output_path, proxy, paper_recognizer):
+def file_update(input_path, output_path, proxy, paper_recognizer, semantic_scholar=False):
     
     replace_dict =  get_bib_and_pdf(input_path, output_path,
-                                    proxy, paper_recognizer)
+                                    proxy, paper_recognizer, semantic_scholar=semantic_scholar)
     
     if replace_dict:
         note_modified(paper_recognizer, input_path, **replace_dict)
 
 
 def main():
-    input_path, output_path, delete_bool, proxy, migration_path = check_args()
+    input_path, output_path, delete_bool, proxy, migration_path, semantic_scholar = check_args()
     
     if output_path:
         paper_recognizer = patternRecognizer(r'- \{.{3,}\}')
         
         if os.path.isfile(input_path):
             logger.info("正在更新文件 {}".format(input_path))
-            file_update(input_path, output_path, proxy, paper_recognizer)
+            file_update(input_path, output_path, proxy, paper_recognizer, semantic_scholar=semantic_scholar)
             
         elif os.path.isdir(input_path):
             note_paths = []
@@ -85,7 +94,7 @@ def main():
                         note_paths.append(os.path.join(root, file))
             for note_path in note_paths:
                 logger.info("正在更新文件 {}".format(note_path))
-                file_update(note_path, output_path, proxy, paper_recognizer)
+                file_update(note_path, output_path, proxy, paper_recognizer, semantic_scholar=semantic_scholar)
         else:
             logger.info("input path {} is not exists".format(input_path))
     
