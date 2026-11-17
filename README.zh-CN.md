@@ -12,6 +12,8 @@
 
 注意：`paper_id`支持已发表文章的`doi`，预发布文章的`arxiv_id`、`biorxiv_id`、`medrxiv_id`。
 
+还支持 USENIX 官方论文页地址，见[示例](doc/usenix-examples.md)。
+
 ## 安装
 
 1. pip 安装
@@ -24,9 +26,11 @@ pip3 install autoliter
 
 2. 源码安装
 
+使用当前 fork 的源码安装以启用新增功能。
+
 ```bash
-git clone https://github.com/WilmerWang/autoLiterature.git
-cd autoLiterature
+git clone https://github.com/Partial01/autoLiterature_DIY.git
+cd autoLiterature_DIY
 python setup.py install
 
 # 本地修改代码之后，在代码文件夹路径下，更新可使用：
@@ -51,6 +55,7 @@ options:
   -m MIGRATION, --migration MIGRATION
                         the pdf folder path you want to reconnect to
   --semantic-scholar    Enable optional Semantic Scholar enrichment.
+  --refresh-citations   Refresh existing citation counts only; no PDFs or -o required.
 ```
 
 ## 使用
@@ -71,6 +76,9 @@ autoliter -i input -o output -d
 
 # 可选：启用 Semantic Scholar 增强，补充 S2 链接、引用数、venue 等信息
 autoliter -i input -o output --semantic-scholar
+
+# 刷新已有条目的被引次数，无需 -o
+autoliter -i input/example.md --refresh-citations --semantic-scholar
 ```
 
 `--semantic-scholar` 默认关闭。不设置 API Key 也可以使用，但可能触发 Semantic Scholar 官方限流；如需更稳定，可先设置环境变量 `SEMANTIC_SCHOLAR_API_KEY`。
@@ -78,6 +86,8 @@ autoliter -i input -o output --semantic-scholar
 ```powershell
 $env:SEMANTIC_SCHOLAR_API_KEY = "your_api_key"
 ```
+
+刷新保留笔记和链接，失败时保留旧值，并用隐藏注释保存论文标识。详见[刷新规则](doc/citations.md)。
 
 ### 迁移笔记和PDF文件
 

@@ -12,6 +12,8 @@
 
 Note: `paper_id` supports `doi` for published papers, and `arxiv_id`, `biorxiv_id`, or `medrxiv_id` for preprints.
 
+Official USENIX presentation URLs are also supported; see [examples](doc/usenix-examples.md).
+
 ## Installation
 
 1. Install from pip
@@ -24,9 +26,11 @@ pip3 install autoliter
 
 2. Install from source
 
+Install from this fork to use the added features.
+
 ```bash
-git clone https://github.com/WilmerWang/autoLiterature.git
-cd autoLiterature
+git clone https://github.com/Partial01/autoLiterature_DIY.git
+cd autoLiterature_DIY
 python setup.py install
 
 # After local code changes, run this in the project directory:
@@ -51,6 +55,7 @@ options:
   -m MIGRATION, --migration MIGRATION
                         the pdf folder path you want to reconnect to
   --semantic-scholar    Enable optional Semantic Scholar enrichment.
+  --refresh-citations   Refresh existing citation counts only; no PDFs or -o required.
 ```
 
 ## Usage
@@ -71,6 +76,9 @@ autoliter -i input -o output -d
 
 # Optional: enable Semantic Scholar enrichment for S2 links, citation counts, venue, and related metadata
 autoliter -i input -o output --semantic-scholar
+
+# Refresh existing citation counts; no -o required
+autoliter -i input/example.md --refresh-citations --semantic-scholar
 ```
 
 `--semantic-scholar` is disabled by default. It can run without an API key, but may hit the official Semantic Scholar rate limit. For more stable requests, set `SEMANTIC_SCHOLAR_API_KEY` first.
@@ -78,6 +86,8 @@ autoliter -i input -o output --semantic-scholar
 ```powershell
 $env:SEMANTIC_SCHOLAR_API_KEY = "your_api_key"
 ```
+
+Citation refresh preserves notes and links, keeps old values on failure, and stores paper identifiers in hidden comments. See [refresh rules](doc/citations.md).
 
 ### Migrate notes and PDF files
 

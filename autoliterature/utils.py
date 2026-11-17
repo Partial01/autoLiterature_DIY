@@ -3,6 +3,7 @@ import logging
 import re 
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm 
+from .citations import citation_value, metadata_comment, tracking_metadata
 from .downloads import (
     enrich_paper_info_with_semantic_scholar,
     get_paper_info_from_paperid,
@@ -53,7 +54,7 @@ class patternRecognizer(object):
             if match in replace_dict.keys():
                 return replace_dict[match]
             else:
-                return match+" **Not Correct, Check it**"
+                return match
         
         replace_content = self.pattern.sub(replace_, content)
         
@@ -188,10 +189,7 @@ def _first_author(bib):
 
 
 def _citation_count(bib):
-    s2 = bib.get("semantic_scholar") or {}
-    if s2.get("citationCount") is not None:
-        return s2.get("citationCount")
-    return bib.get("cited_count")
+    return citation_value(bib)[0]
 
 
 def _semantic_scholar_pdf_url(bib):
@@ -255,7 +253,7 @@ def _link_url(kind, bib, pdf_path=None, note_file=None):
     return None
 
 
-def format_literature_entry(bib, pdf_path=None, note_file=None):
+def format_literature_entry(bib, pdf_path=None, note_file=None, paper_id=None):
     title = bib.get("title", "No title")
     author = _first_author(bib)
     venue = _select_venue(bib)
@@ -287,6 +285,8 @@ def format_literature_entry(bib, pdf_path=None, note_file=None):
     if links:
         suffix += " " + " ".join(links)
     suffix += citation_text
+    if paper_id:
+        suffix += " " + metadata_comment(tracking_metadata(bib, paper_id))
 
     return "- **{}**. *{}*{}{}\n\t- ".format(title, author, venue_year, suffix)
 
@@ -299,14 +299,14 @@ def get_update_content(m, note_file, pdfs_path, proxy, semantic_scholar=False):
         for literature in tqdm(m):
             pdf = classify_identifier(literature)
         
-            literature_id = literature.split('{')[-1].split('}')[0]
+            literature_id = literature.split('{')[-1].split('}')[0].strip()
             bib = get_paper_info_from_paperid(
                 literature_id,
                 proxy=proxy,
                 enrich_semantic=False,
             )
             if not bib:
-                logger.info("未获取到文献信息，已经跳过 {}".format(literature_id))
+                logger.info("No metadata found; skipping %s", literature_id)
                 continue
         
             try:
@@ -335,9 +335,10 @@ def get_update_content(m, note_file, pdfs_path, proxy, semantic_scholar=False):
                         bib,
                         pdf_path=local_pdf_path,
                         note_file=note_file,
+                        paper_id=literature_id,
                     )
             except Exception as exc:
-                logger.info("文献下载失败，已经跳过 {}: {}".format(literature_id, exc))
+                logger.info("Paper download failed; skipping %s: %s", literature_id, type(exc).__name__)
         
         for literature, literature_id, local_pdf_path, bib, semantic_future in pending_entries:
             try:
@@ -348,13 +349,15 @@ def get_update_content(m, note_file, pdfs_path, proxy, semantic_scholar=False):
                     bib,
                     pdf_path=local_pdf_path,
                     note_file=note_file,
+                    paper_id=literature_id,
                 )
             except Exception as exc:
-                logger.info("Semantic Scholar 增强失败，使用基础信息继续 {}: {}".format(literature_id, exc))
+                logger.info("Semantic Scholar enrichment failed; using base metadata for %s: %s", literature_id, type(exc).__name__)
                 replace_dict[literature] = format_literature_entry(
                     bib,
                     pdf_path=local_pdf_path,
                     note_file=note_file,
+                    paper_id=literature_id,
                 )
 
     return replace_dict

@@ -10,7 +10,7 @@ logging.basicConfig()
 logger = logging.getLogger('semantic_scholar')
 logger.setLevel(logging.INFO)
 
-FIELDS = "title,year,venue,url,citationCount,openAccessPdf,authors"
+FIELDS = "title,year,venue,url,citationCount,openAccessPdf,authors,externalIds"
 BASE_URL = "https://api.semanticscholar.org/graph/v1/paper/{}"
 SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:27.0) Gecko/20100101 Firefox/27.0'}
@@ -31,7 +31,7 @@ def _paper_key(doi=None, arxiv_id=None):
 def _normalize_title(title):
     if not title:
         return None
-    return " ".join(str(title).split()).lower()
+    return " ".join(str(title).replace('{', '').replace('}', '').split()).casefold()
 
 
 def _throttle_request():
@@ -67,7 +67,7 @@ def _request_json(sess, url, params, headers, paper_key=None):
         if response is not None and response.status_code == 429:
             if not _rate_limit_warning_logged:
                 logger.warning(
-                    "Semantic Scholar 已触发官方限流，本次使用基础信息继续。可设置 SEMANTIC_SCHOLAR_API_KEY 后使用 --semantic-scholar。"
+                    "Semantic Scholar rate limit reached; using base metadata. Set SEMANTIC_SCHOLAR_API_KEY when using --semantic-scholar."
                 )
                 _rate_limit_warning_logged = True
         else:
@@ -81,13 +81,14 @@ def _request_json(sess, url, params, headers, paper_key=None):
 def _select_title_match(search_data, title):
     papers = search_data.get("data") or []
     normalized_title = _normalize_title(title)
-    for paper in papers:
-        if _normalize_title(paper.get("title")) == normalized_title:
-            return paper
+    matches = [paper for paper in papers
+               if _normalize_title(paper.get("title")) == normalized_title]
+    if normalized_title and len(matches) == 1:
+        return matches[0]
     return {}
 
 
-def get_semantic_scholar_info(doi=None, arxiv_id=None, title=None, proxy=None):
+def get_semantic_scholar_info(doi=None, arxiv_id=None, title=None, proxy=None, paper_id=None):
     """Fetch Semantic Scholar metadata by DOI/arXiv id, then exact title fallback."""
     sess = requests.Session()
     sess.headers = HEADERS
@@ -99,7 +100,7 @@ def get_semantic_scholar_info(doi=None, arxiv_id=None, title=None, proxy=None):
     if api_key:
         headers["x-api-key"] = api_key
 
-    paper_key = _paper_key(doi=doi, arxiv_id=arxiv_id)
+    paper_key = paper_id or _paper_key(doi=doi, arxiv_id=arxiv_id)
     if paper_key:
         data = _request_json(
             sess,

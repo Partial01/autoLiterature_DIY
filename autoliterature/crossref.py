@@ -1,5 +1,6 @@
 import logging
 import requests 
+from urllib.parse import quote
 # 
 # 1. get info by doi
 # 2. get info by title
@@ -13,7 +14,7 @@ class crossrefInfo(object):
     def __init__(self):
         self.sess = requests.Session()
         self.sess.headers = HEADERS
-        self.base_url = "http://api.crossref.org/"
+        self.base_url = "https://api.crossref.org/"
 
     def set_proxy(self, proxy=None):
         """set proxy for session
@@ -24,6 +25,8 @@ class crossrefInfo(object):
             None
         """
         if proxy:
+            if not proxy.startswith(("http://", "https://")):
+                proxy = "http://" + proxy
             self.sess.proxies = {
                 "http": proxy,
                 "https": proxy, }
@@ -38,10 +41,17 @@ class crossrefInfo(object):
         Returns:
             A dict containing the paper information.
         """
-        pub_date = [str(i) for i in bib['published']["date-parts"][0]]
-        pub_date = '-'.join(pub_date)
+        title = next((title for title in bib.get('title', []) if title.strip()), None)
+        if not title:
+            raise ValueError("Crossref record has no title")
+        pub_date = None
+        for field in ('published', 'published-print', 'published-online', 'issued'):
+            date_parts = (bib.get(field) or {}).get('date-parts') or []
+            if date_parts and date_parts[0]:
+                pub_date = '-'.join(str(i) for i in date_parts[0])
+                break
 
-        if 'author' in bib.keys():
+        if bib.get('author'):
             authors = ' and '.join(
                 ["{} {}".format(i.get("given", ""), i.get("family", "")).strip() for i in bib['author']]
             )
@@ -61,16 +71,17 @@ class crossrefInfo(object):
         pdf_link = None
         links = bib.get("link") or []
         if links:
-            pdf_link = links[0].get("URL")
+            pdf_link = next((link.get("URL") for link in links
+                             if link.get("content-type") == "application/pdf"), None)
 
         bib_dict = {
-            "title": bib['title'][0],
+            "title": title,
             "author": authors,
             "journal": journal,
             "short_container_title": short_container_title,
             "container_title": container_title,
             "year": pub_date,
-            "url": bib["URL"],
+            "url": bib.get("URL") or "https://doi.org/{}".format(bib.get("DOI", "")),
             "doi": bib.get("DOI"),
             "pdf_link": pdf_link,
             "cited_count": bib.get("is-referenced-by-count")
@@ -96,17 +107,35 @@ class crossrefInfo(object):
             OR
             None
         """
-        url = "{}works/{}"
-        url = url.format(self.base_url, doi)
-        
-        try:
-            r = self.sess.get(url)
+        data = self._request_json("works/" + quote(doi, safe="/"), doi)
+        if data is not None:
+            try:
+                return self.extract_json_info(data['message'])
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                logger.error("Crossref metadata invalid for %s: %s", doi, exc)
+        return None
 
-            bib = r.json()['message']
-            return self.extract_json_info(bib)
-            
-        except:
-            logger.error("DOI: {} is error.".format(doi)) 
+    def _request_json(self, path, target, params=None):
+        try:
+            response = self.sess.get(self.base_url + path, params=params, timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "unknown"
+            logger.warning("Crossref HTTP %s for %s", status, target)
+            if status == 404 and target.startswith("10.5555/"):
+                logger.warning(
+                    "10.5555 is a test/unmaintained prefix; an ACM catalog entry does not "
+                    "guarantee a registered DOI. Use the official USENIX presentation URL "
+                    "or an arXiv ID instead. The original placeholder is preserved."
+                )
+        except requests.Timeout:
+            logger.warning("Crossref timeout for %s", target)
+        except requests.RequestException as exc:
+            logger.warning("Crossref network error for %s: %s", target, exc)
+        except ValueError as exc:
+            logger.warning("Crossref invalid JSON for %s: %s", target, exc)
+        return None
             
     
     def get_info_by_title(self, title):
@@ -128,11 +157,12 @@ class crossrefInfo(object):
             OR
             A list [{}, {}, {}]
         """
-        url = self.base_url + "works"
         params = {"query.bibliographic": title, "rows": 20}
+        data = self._request_json("works", title, params=params)
+        if data is None:
+            return None
         try:
-            r = self.sess.get(url, params=params)
-            items = r.json()["message"]["items"]
+            items = data["message"]["items"]
             
             for i, item in enumerate(items):
                 
@@ -150,8 +180,8 @@ class crossrefInfo(object):
                 items[i] = item
 
             return [self.extract_json_info(it) for it in items]
-        except:
-            logger.error("Title: {} is error.".format(title)) 
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            logger.error("Crossref metadata invalid for title %s: %s", title, exc)
             
             
 if __name__ == "__main__":

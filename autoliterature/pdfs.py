@@ -9,6 +9,17 @@ logger.setLevel(logging.DEBUG)
 HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:27.0) Gecko/20100101 Firefox/27.0'}
 
 
+def _url_for_log(url):
+    """Omit credentials, query parameters, and fragments from diagnostic URLs."""
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in ('http', 'https') or not parts.netloc:
+            return '<invalid URL>'
+        return urlunsplit((parts.scheme, parts.netloc.rsplit('@', 1)[-1], parts.path, '', ''))
+    except ValueError:
+        return '<invalid URL>'
+
+
 class pdfDownload(object):
     def __init__(self):
         self.sess = requests.Session()
@@ -55,14 +66,14 @@ class pdfDownload(object):
             r = self.sess.get(url, auth=auth)
         
             if r.headers["Content-Type"] != "application/pdf":
-                logger.info("Failed to fetch pdf with url: {}".format(url))
+                logger.info("Failed to fetch pdf with url: %s", _url_for_log(url))
             else:
                 return {
                     'pdf': r.content,
                     'url': url
                     }
         except:
-            logger.error("Failed to open url: {}".format(url))
+            logger.error("Failed to open url: %s", _url_for_log(url))
     
     
     def get_pdf_from_direct_url(self, url, auth=None):
@@ -109,20 +120,3 @@ class pdfDownload(object):
             f.write(content)
             
 
-if __name__ == "__main__":
-    doi = "10.1145/3308558.3313562"
-    
-    pdf_download = pdfDownload()
-    pdf_download.set_proxy("127.0.1:1123")
-    
-    pdf_dict = pdf_download.get_pdf_from_sci_hub(doi)
-    if pdf_dict:
-        print(pdf_dict['url'])
-        pdf_download.download(pdf_dict['pdf'] ,"/home/admin/tmp.pdf")
-        
-    # pdf_dict2 = pdf_download.get_pdf_from_direct_url("https://arxiv.org/pdf/2208.05419.pdf")
-    # if pdf_dict2:
-    #     print(pdf_dict2['url'])
-    #     pdf_download.download(pdf_dict2['pdf'] ,"/home/admin/tmp2.pdf")
-    
-    
