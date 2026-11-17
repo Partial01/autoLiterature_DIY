@@ -3,6 +3,7 @@ import argparse
 import os 
 
 from .utils import patternRecognizer, note_modified, get_pdf_paths, get_pdf_paths_from_notes, get_update_content, get_pdf_paths_from_notes_dict
+from .citations import refresh_note_citations
 
 logging.basicConfig()
 logger = logging.getLogger('AutoLiter')
@@ -24,7 +25,12 @@ def set_args():
                         help="the pdf folder path you want to reconnect to")
     parser.add_argument('--semantic-scholar', action='store_true',
                         help='Enable optional Semantic Scholar enrichment.')
+    parser.add_argument('--refresh-citations', action='store_true',
+                        help='Refresh existing citation counts only; no PDFs or -o required. '
+                             'Add --semantic-scholar to refresh S2 counts.')
     args = parser.parse_args()
+    if args.refresh_citations and (args.output or args.delete or args.migration):
+        parser.error('--refresh-citations cannot be combined with -o, -d, or -m')
     
     return args 
 
@@ -37,7 +43,7 @@ def check_args():
     proxy = args.proxy
     semantic_scholar = args.semantic_scholar
         
-    return input_path, output_path, delete_bool, proxy, migration_path, semantic_scholar
+    return input_path, output_path, delete_bool, proxy, migration_path, args.refresh_citations, semantic_scholar
 
 
 def get_bib_and_pdf(note_file, output_path, proxy, paper_recognizer, semantic_scholar=False):
@@ -50,10 +56,10 @@ def get_bib_and_pdf(note_file, output_path, proxy, paper_recognizer, semantic_sc
         content = f.read()
             
     m = paper_recognizer.findall(content)
-    logger.info("需要下载的文献个数 -  {}".format(len(m)))
+    logger.info("Papers to process: %s", len(m))
 
     if not m:
-        logger.info("未找到需要下载的文献, 文件 {} 未更新.".format(note_file))
+        logger.info("No paper placeholders found; %s unchanged.", os.path.basename(note_file))
     else:
         # TODO add pd_online link in note file
         replace_dict = get_update_content(
@@ -77,13 +83,27 @@ def file_update(input_path, output_path, proxy, paper_recognizer, semantic_schol
 
 
 def main():
-    input_path, output_path, delete_bool, proxy, migration_path, semantic_scholar = check_args()
+    input_path, output_path, delete_bool, proxy, migration_path, refresh_counts, semantic_scholar = check_args()
+
+    if refresh_counts:
+        if os.path.isfile(input_path):
+            refresh_note_citations(input_path, proxy=proxy, semantic_scholar=semantic_scholar)
+        elif os.path.isdir(input_path):
+            for root, _, files in os.walk(input_path):
+                for file in files:
+                    if file.lower().endswith(('.md', '.markdown')):
+                        refresh_note_citations(os.path.join(root, file), proxy=proxy,
+                                               semantic_scholar=semantic_scholar)
+        else:
+            logger.error("Input path does not exist: %s", os.path.basename(input_path))
+            raise SystemExit(2)
+        return
     
     if output_path:
-        paper_recognizer = patternRecognizer(r'- \{.{3,}\}')
+        paper_recognizer = patternRecognizer(r'- \{\{?[^{}\r\n]+\}\}?')
         
         if os.path.isfile(input_path):
-            logger.info("正在更新文件 {}".format(input_path))
+            logger.info("Updating %s", os.path.basename(input_path))
             file_update(input_path, output_path, proxy, paper_recognizer, semantic_scholar=semantic_scholar)
             
         elif os.path.isdir(input_path):
@@ -93,21 +113,21 @@ def main():
                     if file.lower().endswith('md') or file.lower().endswith('markdown'):
                         note_paths.append(os.path.join(root, file))
             for note_path in note_paths:
-                logger.info("正在更新文件 {}".format(note_path))
+                logger.info("Updating %s", os.path.basename(note_path))
                 file_update(note_path, output_path, proxy, paper_recognizer, semantic_scholar=semantic_scholar)
         else:
-            logger.info("input path {} is not exists".format(input_path))
+            logger.info("Input path does not exist: %s", os.path.basename(input_path))
     
     
         # Delete unreferenced attachments
         if delete_bool:
             if os.path.isfile(input_path):
-                logger.info("若要删除笔记无关PDF实体, 输入的路径必须是笔记总文件夹!!!请谨慎使用该参数!!!")
+                logger.info("To delete unreferenced PDFs, -i must be the folder containing all notes. Use with caution.")
             else:
                 pdf_path_recognizer = patternRecognizer(r'\[pdf\]\(.{5,}\.pdf\)')
                 pdf_paths_in_notes = get_pdf_paths_from_notes(input_path, pdf_path_recognizer)
                 pdf_paths = get_pdf_paths(output_path)
-                # TODO mac 和 win 之间路径可能会不同，“/” 和 “\\”
+                # TODO: Normalize path separators across platforms.
                 pdf_paths_in_notes = [os.path.abspath(i).replace('\\', '/') for i in pdf_paths_in_notes]
                 pdf_paths = [os.path.abspath(i).replace('\\', '/') for i in pdf_paths]
                 
@@ -118,7 +138,7 @@ def main():
                 except:
                     pass 
                 
-                logger.info("已删除 {} 个PDF文件".format(len(removed_pdf_paths)))
+                logger.info("Deleted %s PDF files", len(removed_pdf_paths))
             
     
     if migration_path:
@@ -148,11 +168,11 @@ def main():
             if replace_paths_dict: 
                 note_modified(pdf_path_recognizer, md_file, **replace_paths_dict)
         
-        logger.info("共匹配到 - {} - 个PDF文件".format(matched_numb))
+        logger.info("Matched %s PDF files", matched_numb)
         
 
     if not output_path and not migration_path:
-        logger.info("缺少关键参数 -o 或者 -m, 程序未运行, 请使用 -h 查看具体信息")
+        logger.info("Missing -o or -m; no changes made. Use -h for help.")
 
 
 if __name__ == "__main__":

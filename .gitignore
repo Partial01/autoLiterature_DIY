@@ -1,10 +1,16 @@
 .vscode
 
+# Local notes, review drafts, and verification outputs.
+/context_tmp_ONLY/
+
 *codex*
 
 AGENTS.md
 
-tests/
+# Keep the public regression suite; ignore other local test files.
+/tests/*
+!/tests/test_doi_refresh.py
+!/tests/test_pdf_logging.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

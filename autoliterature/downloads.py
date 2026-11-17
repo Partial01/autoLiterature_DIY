@@ -7,6 +7,7 @@ from .crossref import crossrefInfo
 from .medbiorxiv import BMxivInfo
 from .pdfs import pdfDownload
 from .semantic_scholar import get_semantic_scholar_info
+from .usenix import get_usenix_info, is_usenix_url
 
 # log config
 logging.basicConfig()
@@ -32,7 +33,9 @@ def classify(identifier):
     medbiorxivId - medrxiv or biorxiv id
     title - title
     """
-    if check_string(r'10\.(?!1101)[0-9]{4}/\.*', identifier):
+    if is_usenix_url(identifier):
+        return 'usenix'
+    if check_string(r'10\.(?!1101/)[0-9]{4,9}/\S+', identifier):
         return 'doi'
     elif check_string(r'10\.1101/\.*', identifier):
         return "medbiorxivId"
@@ -77,10 +80,13 @@ def enrich_paper_info_with_semantic_scholar(bib_dict, paper_id, id_type=None, pr
 
 
 def get_paper_info_from_paperid(paper_id, proxy=None, enrich_semantic=True):
+    paper_id = paper_id.strip()
     id_type = classify(paper_id)
     bib_dict = None
     
-    if id_type == "doi":
+    if id_type == "usenix":
+        bib_dict = get_usenix_info(paper_id, proxy=proxy)
+    elif id_type == "doi":
         downloader = crossrefInfo()
         if proxy:
             downloader.set_proxy(proxy=proxy)
@@ -109,8 +115,9 @@ def get_paper_info_from_paperid(paper_id, proxy=None, enrich_semantic=True):
     
     try:
         return enrich_paper_info_with_semantic_scholar(bib_dict, paper_id, id_type, proxy=proxy)
-    except:
-        pass 
+    except Exception as exc:
+        logger.warning("Semantic Scholar enrichment failed for %s: %s", paper_id, exc)
+        return bib_dict
 
 
 def get_paper_pdf_from_paperid(paper_id, path, proxy=None, direct_url=None):
